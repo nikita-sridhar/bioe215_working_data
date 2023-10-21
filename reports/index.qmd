@@ -1,0 +1,126 @@
+# Assessment for Working with Data
+
+## *Nikita Sridhar \\* 10/20/23
+
+*Loading necessary data and libraries*
+
+```{r}
+library(tidyverse)
+library(here)
+
+bor_nestlings <- read_csv(here::here("data/73_species.csv"))
+
+bor_traits <- read_csv(here::here("data/Traits_73_species.csv"))
+
+avonet <- readxl::read_excel(here::here("data/AVONET Supplementary dataset 1.xlsx"), "AVONET1_BirdLife")
+```
+
+*Are nestlings showing up earlier in the year over time? - all code provided by Max as an example*
+
+```{r}
+all_birds_trend <- bor_nestlings %>% 
+  group_by(Year) %>% 
+  summarize(mean_doy = mean(Dayofyear))
+
+ggplot(all_birds_trend, aes(Year, mean_doy)) + 
+  geom_point() +
+  geom_smooth(method = "lm")
+
+#breakdown by species
+species_trends <- bor_nestlings %>% 
+  group_by(Year, Species) %>% 
+  summarize(mean_doy = mean(Dayofyear),
+            .groups = "drop")
+
+ggplot(species_trends, aes(Year, mean_doy, color = Species)) + 
+  geom_point() +
+  geom_smooth(method = "lm")
+
+#focusing on 5 most data-rich species
+data_richness <- bor_nestlings %>% 
+  count(Species)
+
+most_rich <- data_richness %>% 
+  arrange(desc(n)) %>% 
+  slice(1:5)
+
+most_rich_trends <- bor_nestlings %>% 
+  filter(Species %in% most_rich$Species) %>% 
+  group_by(Species, Year) %>% 
+  summarize(mean_doy = mean(Dayofyear), 
+            .groups = "drop")
+
+ggplot(most_rich_trends, aes(Year, mean_doy, color = Species)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+
+#Find slope of lines to determine which species have strongest trends - following function is to find slope between x and y
+trend <- function(x, y) {
+  xy_lm <- lm(y ~ x)
+  coef(xy_lm)[2]
+}
+
+# Calculate the trend for all species
+bor_trends <- species_trends %>% 
+  group_by(Species) %>% 
+  summarize(doy_trend = trend(Year, mean_doy))
+
+#spot check two species
+soi <- c("ARDCIN", "LARMIN")
+species_trends %>% 
+  filter(Species %in% soi) %>% 
+  ggplot(aes(Year, mean_doy, color = Species)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+```
+
+*My turn - visualizing species with the most positive and most negative trends*
+
+```{r}
+
+nrow_bor_trends <- nrow(bor_trends) # Use this later
+bor_extreme <- bor_trends %>% 
+  # Sort by the day of year trend
+  arrange(desc(doy_trend)) %>% 
+# Keep just the first (most negative trend) and last (most positive trend) rows
+  slice(c(1,73))
+
+# Now plot them
+species_trends %>% 
+  filter(Species %in% bor_extreme$Species) %>% 
+  ggplot(aes(Year, mean_doy, color = Species)) + 
+    geom_point() +
+    geom_smooth(method = "lm")
+```
+
+*Seeing whether smaller birds have more flexible phenology (absolute value of trend is correlated with size)*
+
+```{r}
+# First, select and rename important columns
+avonet_size <- select(avonet, SciName = Species1, Mass_g = Mass)
+bor_sciname <- select(bor_traits, 
+                      Species = Abbreviation, 
+                      SciName = `Scientific name`)
+
+#joining things
+bor_trends_size <- bor_trends %>% 
+  left_join(bor_sciname, by = "Species") %>% 
+  left_join(avonet_size, by = "SciName") %>% 
+  mutate(abs_trend = abs(doy_trend))
+
+# Plot it
+ggplot(bor_trends_size, aes(Mass_g, abs_trend)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+
+#removing missing values
+bor_trends_size2 <- bor_trends_size %>%
+  drop_na(Mass_g) %>%
+  filter(Mass_g < 2000, abs_trend < 1)
+
+ggplot(bor_trends_size2, aes(Mass_g, abs_trend)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+```
+
+The above graph shows that our hypothesis is not supported - the magnitude of the trend for the day of the year birds show up and bird body size (mass) are not correlated.
